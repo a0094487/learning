@@ -1,0 +1,390 @@
+import pandas as pd
+df = pd.read_csv('olympics.csv', index_col=0, skiprows=1)
+for col in df.columns:
+    if col[:2]=='01':
+        df.rename(columns={col:'Gold'+col[4:]}, inplace=True)
+    if col[:2]=='02':
+        df.rename(columns={col:'Silver'+col[4:]}, inplace=True)
+    if col[:2]=='03':
+        df.rename(columns={col:'Bronze'+col[4:]}, inplace=True)
+    if col[:1]=='№':
+        df.rename(columns={col:'#'+col[1:]}, inplace=True)
+names_ids = df.index.str.split('\s\(') # split the index by '('
+df.index = names_ids.str[0] # the [0] element is the country name (new index) 
+df['ID'] = names_ids.str[1].str[:3] # the [1] element is the abbreviation or ID (take first 3 characters from that)
+df = df.drop('Totals')
+df.head()
+
+def answer_zero():
+    return df.iloc[0]
+answer_zero() 
+
+def answer_one():
+    return df[df['Gold'] == df['Gold'].max()].index[0]
+answer_one()
+
+def answer_two():
+    diff = (df['Gold'] - df['Gold.1']).abs()
+    return diff[(diff == diff.max())].index[0]
+answer_two()
+
+def answer_three():
+    dfb = df[(df['Gold'] > 0) & (df['Gold.1'] > 0)]
+    dfbf = ((dfb['Gold'] - dfb['Gold.1'])/dfb['Gold.2'])
+    return dfbf[(dfbf == dfbf.abs().max())].index[0]
+answer_three()
+
+def answer_four(): 
+    Points = df['Gold.2']*3 + df['Silver.2']*2 + df['Bronze.2']*1
+    return Points
+answer_four()
+
+import pandas as pd
+census_df = pd.read_csv('census.csv')
+census_df.head()
+
+def answer_five():
+    state_df = pd.DataFrame()
+    cdf = census_df[census_df['SUMLEV'] == 50]
+    scdf = cdf.set_index(['STNAME'])
+    state_df['State'] = cdf['STNAME'].unique()
+    state_df['CountyCnt'] = 0
+    state_df.set_index('State',inplace=True)
+    for st in state_df.index:
+        state_df.loc[st]['CountyCnt'] = len(scdf.loc[st])
+    return state_df.where(state_df == state_df.max()).dropna().index[0]
+answer_five()
+
+def answer_six():
+    census_df = pd.read_csv('census.csv')
+    cen = census_df[census_df['SUMLEV'] == 50]
+    cen_pop_sort = cen.sort_values(['STNAME', 'CENSUS2010POP'], ascending=[True, False]).set_index(["STNAME", "CTYNAME"])
+    cen_pop_sort3 = cen_pop_sort.groupby(level=0, group_keys=False).apply(lambda x: x.nlargest(3, ['CENSUS2010POP']))
+    cps3 = cen_pop_sort3.reset_index().set_index('STNAME')
+    state_df = pd.DataFrame()
+    cdf = census_df[census_df['SUMLEV'] == 50]
+    scdf = cdf.set_index(['STNAME'])
+    state_df['State'] = cdf['STNAME'].unique()
+    state_df['C2010POP3'] = 0
+    state_df.set_index('State',inplace=True)
+    for st in state_df.index:
+        try: state_df.loc[st]['C2010POP3'] = sum(cps3.loc[st]['CENSUS2010POP'])
+        except: state_df.loc[st]['C2010POP3'] = cps3.loc[st]['CENSUS2010POP'] #Since bloody State of Columbia only has one row in.
+    s3df = state_df.sort_values('C2010POP3', ascending=False)
+    y = [s3df[:3].index[x] for x in range(0, len(s3df[:3].index))]
+    return y
+answer_six()
+
+def answer_seven():
+    cdf = census_df[census_df['SUMLEV'] == 50]
+    scdf = cdf.set_index(['STNAME', 'CTYNAME'])
+    cty_df = scdf.index
+    a = []
+    for x in range(2010,2016):
+        for y in range(2010,2016):
+            if not x == y:
+                diff = scdf['POPESTIMATE'+str(x)] - scdf['POPESTIMATE'+str(y)]
+                countyname = diff[(diff.abs() == diff.abs().max())].index[0]#[1]
+                abschange = diff.abs().loc[diff[(diff.abs() == diff.abs().max())].index[0]]
+                #print(countyname, abschange, x, y)
+                a.append((abschange, countyname))
+    a.sort()
+    return a[-1][1][1]
+answer_seven()     
+
+def answer_eight():
+    cdf = census_df[census_df['SUMLEV'] == 50]
+    reg12 = cdf[((cdf['REGION'] == 1) | (cdf['REGION'] == 2))]
+    reg12[(reg12['POPESTIMATE2015'] > reg12['POPESTIMATE2014'])]
+    querry = reg12[(reg12['POPESTIMATE2015'] > reg12['POPESTIMATE2014'])][['STNAME', 'CTYNAME']]
+    return querry[(querry['CTYNAME'] == 'Washington County')]
+answer_eight()
+
+
+
+import xml.etree.ElementTree as ET
+import sqlite3
+conn = sqlite3.connect('trackdb.sqlite')
+cur = conn.cursor()
+# Make some fresh tables using executescript()
+cur.executescript('''
+DROP TABLE IF EXISTS Artist;
+DROP TABLE IF EXISTS Genre;
+DROP TABLE IF EXISTS Album;
+DROP TABLE IF EXISTS Track;
+CREATE TABLE Artist (
+    id  INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT UNIQUE,
+    name    TEXT UNIQUE
+);
+CREATE TABLE Genre (
+    id  INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT UNIQUE,
+    name    TEXT UNIQUE
+);
+CREATE TABLE Album (
+    id  INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT UNIQUE,
+    artist_id  INTEGER,
+    title   TEXT UNIQUE
+);
+CREATE TABLE Track (
+    id  INTEGER NOT NULL PRIMARY KEY 
+        AUTOINCREMENT UNIQUE,
+    title TEXT  UNIQUE,
+    album_id  INTEGER,
+    genre_id  INTEGER,
+    len INTEGER, rating INTEGER, count INTEGER
+);
+''')
+fname = input('Enter file name: ')
+if ( len(fname) < 1 ) : fname = 'Library.xml'
+# <key>Track ID</key><integer>369</integer>
+# <key>Name</key><string>Another One Bites The Dust</string>
+# <key>Artist</key><string>Queen</string>
+def lookup(d, key):
+    found = False
+    for child in d:
+        if found : return child.text
+        if child.tag == 'key' and child.text == key :
+            found = True
+    return None
+stuff = ET.parse(fname)
+all = stuff.findall('dict/dict/dict')
+print('Dict count:', len(all))
+for entry in all:
+    if ( lookup(entry, 'Track ID') is None ) : continue
+    name = lookup(entry, 'Name')
+    genre = lookup(entry, 'Genre')
+    artist = lookup(entry, 'Artist')
+    album = lookup(entry, 'Album')
+    count = lookup(entry, 'Play Count')
+    rating = lookup(entry, 'Rating')
+    length = lookup(entry, 'Total Time')
+    if name is None or artist is None or genre is None or album is None : 
+        continue
+    print(name, artist, album, genre, count, rating, length)
+    cur.execute('''INSERT OR IGNORE INTO Artist (name) 
+        VALUES ( ? )''', ( artist, ) )
+    cur.execute('SELECT id FROM Artist WHERE name = ? ', (artist, ))
+    artist_id = cur.fetchone()[0]    
+    cur.execute('''INSERT OR IGNORE INTO Genre (name) 
+        VALUES ( ? )''', ( genre, ) )
+    cur.execute('SELECT id FROM Genre WHERE name = ? ', (genre, ))
+    genre_id = cur.fetchone()[0]
+    cur.execute('''INSERT OR IGNORE INTO Album (title, artist_id) 
+        VALUES ( ?, ? )''', ( album, artist_id ) )
+    cur.execute('SELECT id FROM Album WHERE title = ? ', (album, ))
+    album_id = cur.fetchone()[0]
+    cur.execute('''INSERT OR REPLACE INTO Track
+        (title, genre_id, album_id, len, rating, count) 
+        VALUES ( ?, ?, ?, ?, ?, ? )''', 
+        ( name, genre_id, album_id, length, rating, count ) )
+    conn.commit()
+
+
+
+import sqlite3
+conn = sqlite3.connect('orgdb.sqlite')
+cur = conn.cursor()
+cur.execute('''
+DROP TABLE IF EXISTS Counts''')
+cur.execute('''
+CREATE TABLE Counts (org TEXT, count INTEGER)''')
+fname = input('Enter file name: ')
+if (len(fname) < 1): fname = 'mbox.txt'
+fh = open(fname)
+for line in fh:
+    if not line.startswith('From: '): continue
+    pieces = line.split()
+    email = pieces[1]#.split(@)[1]
+    org = email.split('@')[1]
+    cur.execute('SELECT count FROM Counts WHERE org = ? ', (org,))
+    row = cur.fetchone()
+    if row is None:
+        cur.execute('''INSERT INTO Counts (org, count)
+                VALUES (?, 1)''', (org,))
+    else:
+        cur.execute('UPDATE Counts SET count = count + 1 WHERE org = ?',
+                    (org,))
+conn.commit()
+# https://www.sqlite.org/lang_select.html
+sqlstr = 'SELECT org, count FROM Counts ORDER BY count DESC LIMIT 10'
+for row in cur.execute(sqlstr):
+    print(str(row[0]), row[1])
+cur.close()
+
+
+
+import urllib.request, urllib.parse, urllib.error
+import json
+serviceurl = 'http://py4e-data.dr-chuck.net/geojson'
+address = input('Enter location: ')
+if len(address) < 1: address = 'De Anza College' #break
+url = serviceurl + '?' + urllib.parse.urlencode({'sensor':'false', 'address': address})
+print('Retrieving', url)
+uh = urllib.request.urlopen(url)
+data = uh.read().decode()
+print('Retrieved', len(data), 'characters')
+try: js = json.loads(data)
+except: js = None
+if not js or 'status' not in js or js['status'] != 'OK':
+    print('==== Failure To Retrieve ====')
+    print(data)
+print(js["results"][0]["place_id"])
+
+
+
+import urllib.request, urllib.parse, urllib.error
+import json
+uh = urllib.request.urlopen('http://py4e-data.dr-chuck.net/comments_2774.json')
+data = uh.read()
+try: js = json.loads(data)
+except: js = None
+#print(json.dumps(js, indent=4))
+list1=[]
+for j in js['comments']:
+    x = int(j['count'])
+    list1 = list1 + [x]
+print(sum(list1)) 
+
+
+
+import urllib.request, urllib.parse, urllib.error
+import  xml.etree.ElementTree as ET
+url = input('Enter url ')
+if len(url) < 1: url = 'http://py4e-data.dr-chuck.net/comments_2773.xml'
+data = urllib.request.urlopen(url).read()
+tree = ET.fromstring(data)
+comments=tree.findall('.//comment')
+list1=[]
+for stuff in comments:
+    x = int(stuff.find('count').text)
+    list1 = list1 + [x]
+print(sum(list1))
+
+
+
+import urllib.request, urllib.parse, urllib.error
+import re
+from bs4 import BeautifulSoup
+import ssl
+ctx = ssl.create_default_context()
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE
+url = input('Enter first url ')
+counts = input('Enter no. of times: ')
+pos = input('Enter position: ')
+count = 0
+if len(url) < 1: url = 'http://py4e-data.dr-chuck.net/known_by_Clement.html'
+if len(counts) < 1: counts = 7
+if len(pos) < 1: pos = 18
+print(url)
+while count < counts:
+    html = urllib.request.urlopen(url, context=ctx).read()
+    soup = BeautifulSoup(html, 'html.parser')
+    list1=[]
+    tags = soup('a')
+    for tag in tags:
+        x = str(tag.get('href', None))
+        #y =(re.findall('.*by_([A-Za-z]+)', x))
+        list1 = list1 + [x]
+    url = list1[pos-1]
+    count = count + 1
+    print(url)
+    
+    
+    
+from urllib.request import urlopen
+from bs4 import BeautifulSoup
+import ssl
+ctx = ssl.create_default_context()
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE
+url = input('Enter - ')
+if len(url) < 1: url = 'http://py4e-data.dr-chuck.net/comments_2771.html'
+html = urlopen(url, context=ctx).read()
+soup = BeautifulSoup(html, "html.parser")
+list1=[]
+tags = soup('span')
+for tag in tags:
+    x = int(tag.contents[0])
+    list1 = list1 + [x]
+sum=sum(list1)
+print(sum)
+while count < counts:
+    html = urllib.request.urlopen(url, context=ctx).read()
+    soup = BeautifulSoup(html, 'html.parser')
+    list1=[]
+    tags = soup('a')
+    for tag in tags:
+        x = str(tag.get('href', None))
+        #y =(re.findall('.*by_([A-Za-z]+)', x))
+        list1 = list1 + [x]
+    url = list1[pos-1]
+    count = count + 1
+    print(url)
+    print(count)
+    
+    
+    
+import socket
+mysock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+mysock.connect(('data.pr4e.org', 80))
+cmd = 'GET http://data.pr4e.org/intro-short.txt HTTP/1.0\r\n\r\n'.encode()
+mysock.send(cmd)
+while True:
+    data = mysock.recv(512)
+    if (len(data) < 1):
+        break
+    print(data.decode())
+mysock.close()
+
+
+
+name = input("Enter file:")
+if len(name) < 1 : name = "regex_sum_2769.txt"
+handle = open(name)
+list1 = []
+import re
+for line in handle:
+    line=line.rstrip()
+    x = re.findall('[0-9]+', line)
+    if len(x)>0: 
+        for y in x:
+            y=int(y)
+            list1 = list1 + [y]
+sum=sum(list1)
+print(sum)
+
+
+
+name = input("Enter file:")
+if len(name) < 1 : name = "mbox-short.txt"
+handle = open(name)
+basket = {}
+for line in handle:
+    if not line.startswith('From '):continue
+    line=line.rstrip()
+    words=line.split()
+    word=words[5]
+    hour=word[:2]
+    basket[hour]=basket.get(hour,0)+1
+list=basket.items()
+for x,y in sorted(list): print(x,y)
+
+
+
+name = input("Enter file:")
+if len(name) < 1 : name = "mbox-short.txt"
+bucket = dict()
+handle = open(name)
+for line in handle:
+    line=line.rstrip()
+    if not line.startswith('From '): continue
+    subs=line.split()
+    bucket[subs[1]] = bucket.get(subs[1],0) + 1
+busybee = None
+work = None
+for k,v in bucket.items():
+    if v is None or v > work:
+        busybee = k
+        work = v
+print(busybee, work)
