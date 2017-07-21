@@ -1,4 +1,116 @@
 import pandas as pd
+import numpy as np
+from scipy.stats import ttest_ind
+
+# **Hypothesis**: University towns have their mean housing prices less effected by recessions.(`price_ratio=quarter_before_recession/recession_bottom`)
+
+states = {'OH': 'Ohio', 'KY': 'Kentucky', 'AS': 'American Samoa', 'NV': 'Nevada', 'WY': 'Wyoming', 'NA': 'National', 'AL': 'Alabama', 'MD': 'Maryland', 'AK': 'Alaska', 'UT': 'Utah', 'OR': 'Oregon', 'MT': 'Montana', 'IL': 'Illinois', 'TN': 'Tennessee', 'DC': 'District of Columbia', 'VT': 'Vermont', 'ID': 'Idaho', 'AR': 'Arkansas', 'ME': 'Maine', 'WA': 'Washington', 'HI': 'Hawaii', 'WI': 'Wisconsin', 'MI': 'Michigan', 'IN': 'Indiana', 'NJ': 'New Jersey', 'AZ': 'Arizona', 'GU': 'Guam', 'MS': 'Mississippi', 'PR': 'Puerto Rico', 'NC': 'North Carolina', 'TX': 'Texas', 'SD': 'South Dakota', 'MP': 'Northern Mariana Islands', 'IA': 'Iowa', 'MO': 'Missouri', 'CT': 'Connecticut', 'WV': 'West Virginia', 'SC': 'South Carolina', 'LA': 'Louisiana', 'KS': 'Kansas', 'NY': 'New York', 'NE': 'Nebraska', 'OK': 'Oklahoma', 'FL': 'Florida', 'CA': 'California', 'CO': 'Colorado', 'PA': 'Pennsylvania', 'DE': 'Delaware', 'NM': 'New Mexico', 'RI': 'Rhode Island', 'MN': 'Minnesota', 'VI': 'Virgin Islands', 'NH': 'New Hampshire', 'MA': 'Massachusetts', 'GA': 'Georgia', 'ND': 'North Dakota', 'VA': 'Virginia'}
+
+def get_list_of_university_towns():
+    import pandas as pd
+    openfile = open('university_towns.txt')
+    readFile = openfile.readlines()
+    d = {}
+    d['State']=[]
+    d['RegionName']=[]
+    for linestring in readFile: 
+        if linestring.endswith('[edit]\n'): state=linestring[:-7]
+            #for x,y in states.items():
+                #if y == (linestring[:-7]): state = x
+        else: 
+            d['State'].append(state)
+            d['RegionName'].append(linestring[:linestring.find(' (')])
+    openfile.close()
+    return pd.DataFrame(d)[['State','RegionName']]
+get_list_of_university_towns().head()
+
+def get_recession_start():
+    import pandas as pd
+    df=(pd.read_excel('gdplev.xls', index_col=None, skiprows=219)[['1999q4', 12323.3]]
+    .rename(columns={'1999q4':'Period',12323.3:'realGDP'}))
+    years=[]
+    for x in df.index: 
+        try: 
+            if ((df.loc[x+1]['realGDP'] < df.loc[x]['realGDP']) & 
+                (df.loc[x]['realGDP'] < df.loc[x-1]['realGDP'])):
+                years.append(df.loc[x]['Period'])
+        except:continue
+    return years[0]
+get_recession_start()
+
+def get_recession_end():
+    import pandas as pd
+    df=(pd.read_excel('gdplev.xls', index_col=None, skiprows=219)[['1999q4', 12323.3]]
+    .rename(columns={'1999q4':'Period',12323.3:'realGDP'}))
+    years=[]
+    for x in range(df[df['Period']==get_recession_start()].index[0], len(df)): 
+        try: 
+            if ((df.loc[x+1]['realGDP'] > df.loc[x]['realGDP']) & 
+                (df.loc[x]['realGDP'] > df.loc[x-1]['realGDP'])):
+                years.append(df.loc[x+1]['Period'])
+        except:continue
+    return years[0]
+get_recession_end()
+
+def get_recession_bottom():
+    import pandas as pd
+    df=(pd.read_excel('gdplev.xls', index_col=None, skiprows=219)[['1999q4', 12323.3]]
+    .rename(columns={'1999q4':'Period',12323.3:'realGDP'}))
+    worst=(get_recession_start(), df.loc[df[df['Period']==get_recession_start()].index[0]]['realGDP'])
+    for x in range(df[df['Period']==get_recession_start()].index[0], len(df)): 
+        if df.loc[x]['realGDP'] < worst[1]: 
+            worst=(df.loc[x]['Period'], df.loc[x]['realGDP'])
+    return worst[0]
+get_recession_bottom()
+
+def convert_housing_data_to_quarters():
+    import numpy as np
+    import pandas as pd
+    df = pd.read_csv('City_Zhvi_AllHomes.csv', index_col=None, skiprows=0)
+    for key in states:
+        df.replace(key, states[key], inplace=True)
+    list=[('q1',['-01','-02','-03']),('q2',['-04','-05','-06']),
+          ('q3',['-07','-08','-09']),('q4',['-10','-11','-12'])]
+    for y in range(2000,2017):
+        for q in list:
+            try: df[str(y)+q[0]]=np.mean(df[[(str(y)+q[1][0]),(str(y)+q[1][1]),
+                                             (str(y)+q[1][2])]], axis=1)
+            except:
+                try:df[str(y)+q[0]]=np.mean(df[[(str(y)+q[1][0]),
+                                                (str(y)+q[1][1])]], axis=1)
+                except: continue
+    for y in range(1996,2017):
+        for m in ['01','02','03','04','05','06','07','08','09','10','11','12']:
+            try: del df[str(y)+'-'+m]
+            except: continue
+    df = df.set_index(['State','RegionName']).drop(['RegionID','Metro','CountyName','SizeRank'],axis=1)
+    return df
+convert_housing_data_to_quarters().head()
+
+def run_ttest():
+    import pandas as pd
+    import numpy as np
+    from scipy import stats
+    utownlist = get_list_of_university_towns().set_index(['State','RegionName'])
+    bottom = get_recession_bottom()
+    start = get_recession_start()
+    df = convert_housing_data_to_quarters()[[start,bottom]].dropna()
+    utowndf = pd.merge(df,utownlist, how='inner', left_index=True, right_index=True)
+    merged = pd.merge(df,utownlist, how='outer', left_index=True, right_index=True, indicator=True)
+    notudf= merged[merged['_merge'] == 'left_only'][[start,bottom]]
+    tteststats=stats.ttest_ind(utowndf[start].div(utowndf[bottom]), notudf[start].div(notudf[bottom]))
+    p=tteststats[1]
+    if tteststats[1]<0.01: different=True
+    else: different=False
+    if ((utowndf[start].div(utowndf[bottom])).mean()>(notudf[start].div(notudf[bottom])).mean()): 
+        better='non-university town'
+    elif ((utowndf[start].div(utowndf[bottom])).mean()<(notudf[start].div(notudf[bottom])).mean()): 
+        better='university town'
+    return (different,p,better)
+run_ttest()
+
+
+import pandas as pd
 df = pd.read_csv('olympics.csv', index_col=0, skiprows=1)
 for col in df.columns:
     if col[:2]=='01':
