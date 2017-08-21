@@ -7,7 +7,7 @@ Study resources.
 
 [Automate the Boring Stuff with Python](https://automatetheboringstuff.com/) by Al Sweigart. Did not regret reading. Tons of extremely useful skeletons for scripts you can use to automate office task, etc. See also [lotspaih/automateBoringStuffPython](https://github.com/lotspaih/automateBoringstuffPython).
 
-[Applied Data Science with Python](https://www.coursera.org/specializations/data-science-python) by the University of Michigan. Most challenging course I've taken since year 2 undergrad classical mechanics in NUS. Really pushes you to go out and try, try, try and try somemore. Requires alot of thinking on your own time to come up with solutions. Weekly assignments should take hours, if not days, for those not already quite familiar with programming and hailing from a rigorous STEM background.
+[Applied Data Science with Python](https://www.coursera.org/specializations/data-science-python) by the University of Michigan. Genuinely challenging. Really pushes you to go out and try, try, try and try somemore, and than again for good measure. Requires alot of thinking on your own time to come up with solutions. Weekly assignments should take days to feel your way through.
 
 ## SQL
 
