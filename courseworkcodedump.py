@@ -1,3 +1,238 @@
+#Machine learning project: cleans up multivariate data, appends geographic reference, restricting to 7 variables, formats, get dummies for text data, more cleaning up, and trains a gradient boosting classifer, test on test data.
+import pandas as pd
+import numpy as np
+
+def blight_model():
+    from sklearn.ensemble import GradientBoostingClassifier
+    train_df=pd.read_csv('train.csv', encoding = 'ISO-8859-1' ).set_index('ticket_id')
+    test_df=pd.read_csv('test.csv', encoding = 'ISO-8859-1' ).set_index('ticket_id')
+    #removing fields not available in test data
+    drop_these=['payment_amount','payment_status', 'balance_due', 'agency_name', 'inspector_name',
+                'payment_date','collection_status','compliance_detail']
+    train_df=train_df.drop(drop_these, axis=1)
+    #merging with geo coordinates
+    addresses_df=pd.read_csv('addresses.csv')
+    latlons_df=pd.read_csv('latlons.csv')
+    lladd_df=addresses_df.merge(latlons_df, how='left', left_on='address', right_on='address').drop('address',axis=1)
+    train_df=train_df.merge(lladd_df, how='left', left_index=True, right_on='ticket_id').set_index('ticket_id')
+    train_df=train_df[(train_df['compliance']==1.0)|(train_df['compliance']==0.0)]
+    test_df=test_df.merge(lladd_df, how='left', left_index=True, right_on='ticket_id').set_index('ticket_id')
+    #using X_test[X_test['lat'].isnull()].index, test_df['zip_code'] and google map to fill in NaN.
+    missing_coords=[(317124, 42.520195, -83.264904), (329689, 42.495269, -83.289801),
+                    (329393, 43.622624, -84.832194), (333990, 42.367620, -83.143220),
+                    (367165, 42.349607, -83.060984)]
+    for mindex,mlat,mlon in missing_coords:
+        test_df.set_value(mindex,'lat',mlat)
+        test_df.set_value(mindex,'lon',mlon)
+    #keeping selected fields for casual relevance
+    keep_these_train=['violation_code','fine_amount','disposition','country',
+                'grafitti_status','lat','lon','compliance']
+    keep_these_test=keep_these_train.copy()
+    keep_these_test.remove('compliance')
+    cleaned_train_df=pd.get_dummies(train_df[keep_these_train]).dropna()
+    X_train_pre=cleaned_train_df.drop('compliance', axis=1)
+    #converting text fields to dummies, loops to remove non-overlaps in test and train data
+    X_test_pre=pd.get_dummies(test_df[keep_these_test])
+    bucket_train=X_train_pre.columns.tolist()
+    bucket_test=X_test_pre.columns.tolist()
+    for x in X_test_pre.columns.tolist():
+        try: bucket_train.remove(x)
+        except: continue
+    for x in X_train_pre.columns.tolist():
+        try: bucket_test.remove(x)
+        except: continue
+    X_test=X_test_pre.drop(bucket_test, axis=1)#.dropna()
+    X_train=X_train_pre.drop(bucket_train, axis=1)
+    y_train=cleaned_train_df['compliance']
+    clf = GradientBoostingClassifier(random_state = 0)
+    y_proba=clf.fit(X_train, y_train).predict_proba(X_test)
+    y_proba=clf.predict_proba(X_test)
+    X_test_copy=X_test.copy()
+    X_test_copy['compliance']=y_proba[:,1]
+    return X_test_copy['compliance']
+blight_model()
+
+
+
+
+#Subplots investigating effect of christmas day on stock price movements on various stock indices
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+
+%matplotlib notebook
+
+stockindices=[('^AORD.csv','Australia (All Ordinaries)'),('^GSPC.csv','USA (S&P 500)'),
+              ('^N100.csv', 'Europe (Euronext 100)'),('^HSI.csv','Hong Kong (Hang Seng)'),
+              ('^NSEI.csv','India (NIFTY 50)')]
+
+#loads, manipulates the data, consolidate in combined dataframe
+x=0
+for file, title in stockindices:
+    df = pd.read_csv(file)
+    #extract the month and date from string without the "-"
+    df['md']=df['Date'].apply(lambda x: int(x[5:7]+x[8:10]))
+    #extract just the december date range in question
+    df=df[((df['md']>1215)&(df['md']<1231)&(df['Low']!=df['High']))]
+    df['Change']=(df['Close'].astype(float)-df['Open'].astype(float)).div(df['Open'].astype(float))*100
+    df['d']=df['md']-1200
+    df['y']=df['Date'].apply(lambda x: int(x[:4]))
+    df=df.set_index(['y','d'])
+    df = df[['Change']].unstack(level=-1).reset_index()
+    df['Market']=title
+    if x==0:
+        combined=df
+        x+=1
+    elif x==1:
+        combined=combined.append(df)
+        
+#cleans up data abit
+del combined['y']
+combined = combined.groupby('Market').agg(np.mean).T.reset_index().set_index('d')
+del combined['level_0']
+combined=combined.T
+#adds christmas day
+combined[25]=np.nan
+#shrinking the data into just the period around christmas
+combined=combined[list(range(16,31))].T
+
+
+#defines a 6x1 space
+fig = plt.figure()
+gspec = gridspec.GridSpec(6, 1)
+
+#for the bottom subplot
+bottom = fig.add_subplot(gspec[5,:])
+combinedall=combined.T.apply(lambda x: np.mean(x))
+bottom.plot(combinedall, color='gray')
+bottom.axhline(0, color='black')
+bottom.set_ylim((-.25,.25))
+bottom.set_xlim((16,30))
+plt.gca().fill_between(range(24,27), -.3, .6,
+                       facecolor='gray', 
+                       alpha=0.1)
+plt.tick_params(top='off', bottom='on', left='off', right='off', labelleft='off', labelbottom='on')
+bottom.set_xlabel('Day')
+bottom.set_ylabel('All')
+
+#top subplot
+top = fig.add_subplot(gspec[:5,:])
+#workabout to set color, since direct in plot not working
+top.set_prop_cycle('color', [(.673,0,.327),(.7518,0,.2482),
+                                    (.14,.43,.43),(.025,0,.975),(.784,.216,0)])
+top.plot(combined)
+#combined.plot(gspec[:5,:],color=[(.673,0,.327),(.7518,0,.2482),(.14,.43,.43),(.025,0,.975),(.784,.216,0)])
+plt.ylabel('Average Stock Movement (%)')
+plt.gca().fill_between(range(24,27), -.3, .6,
+                       facecolor='gray', 
+                       alpha=0.1)
+plt.tick_params(top='off', bottom='off', left='on', right='off', labelleft='on', labelbottom='off')
+#plt.grid(True)
+top.axhline(0, color='black')
+top.set_ylim((-.3,.6))
+top.set_xlim((16,30))
+plt.title('Averaged Historical Stock Index \nMovements Around Christmas Period', alpha=0.8)
+
+#workabout legend, because passing the dataframe into subplot interferes with the plot
+st=['Australia (All Ordinaries)','Europe (Euronext 100)',
+    'Hong Kong (Hang Seng)','India (NIFTY 50)','USA (S&P 500)']
+plt.legend(st,loc= 'upper left', fontsize= 7);
+
+
+
+
+#Interactive visual
+%matplotlib notebook
+import matplotlib.pyplot as plt
+
+#plt.figure()
+dfmean = np.mean(df2, axis=1)
+dfstd = np.std(df2, axis=1)
+colors=[]
+
+# Value of interest
+y=70000
+
+# Bar color conditions
+for x in df.index:
+    if y>(dfmean.loc[x]+2.5*dfstd.loc[x]): colors.append('darkblue')
+    elif y>(dfmean.loc[x]+1.5*dfstd.loc[x]): colors.append('blue') 
+    elif y>(dfmean.loc[x]+0.5*dfstd.loc[x]): colors.append('lightblue')   
+    elif y>(dfmean.loc[x]-0.5*dfstd.loc[x]): colors.append('silver')    
+    elif y>(dfmean.loc[x]-1.5*dfstd.loc[x]): colors.append('pink')
+    elif y>(dfmean.loc[x]-2.5*dfstd.loc[x]): colors.append('red')
+    else: colors.append('darkred')
+plt.bar(list(df.index), list(dfmean), color=colors,yerr=list(dfstd), alpha=0.6)
+plt.xticks(list(df.index))
+plt.axhline(yvalue, color='gray')
+plt.xlabel('Years')
+plt.ylabel('Mean Value')
+plt.title('Probabilistic Likelihood of Value- \n-in-Interest Within Year', alpha=0.8)
+plt.legend(['Value of Interest: '+str(y)])
+
+
+#Visualizing Melbourne's historical High-low temperatures, highlighting record temperatures for the year
+import matplotlib.pyplot as plt
+import pandas as pd
+import numpy as np
+
+#imports weather data from csv file
+df = pd.read_csv('data/C2A2_data/BinnedCsvs_d400/fe827567d56c440d073c979fc5b1add34f500c5ea0c784ccf4f0ea38.csv')
+df['Date']=pd.to_datetime(df['Date'])
+#consolidates and averages different stations, splits into 2 groups according to as tmax or as tmin.
+dfmin = df[df['Element']=='TMIN'].groupby('Date')['Data_Value'].agg({'mean': np.mean}).div(10)
+dfmax = df[df['Element']=='TMAX'].groupby('Date')['Data_Value'].agg({'mean': np.mean}).div(10)
+
+#for the high/lows linegraph, and groups according to month/day for various years
+dfmin['m-d']=dfmin.index.strftime('%m%d')
+dfminall = dfmin.groupby(['m-d'])['mean'].agg({'allmin': np.min}).drop(('0229'))
+dfminhist = dfmin.iloc[:3652].groupby(['m-d'])['mean'].agg({'allmin': np.min}).drop(('0229'))
+dfmax['m-d']=dfmax.index.strftime('%m%d')
+dfmaxall = dfmax.groupby(['m-d'])['mean'].agg({'allmax': np.max}).drop(('0229'))
+dfmaxhist = dfmax.iloc[:3652].groupby(['m-d'])['mean'].agg({'allmax': np.max}).drop(('0229'))
+
+#for the 2015 records, appends to rows year
+dfmin['year']=dfmin.index.year
+dfmax['year']=dfmax.index.year
+#seperates out the 2015 data, use to obtain only 2015 new records via multidex join
+dfnewmin=dfminall.reset_index().join(dfmin[dfmin['year']==2015].reset_index()
+                                     .set_index(['m-d','mean']), on=['m-d', 'allmin'])
+dfnewmin = dfnewmin[np.isfinite(dfnewmin['year'])]
+dfnewmax=dfmaxall.reset_index().join(dfmax[dfmax['year']==2015].reset_index()
+                                     .set_index(['m-d','mean']), on=['m-d', 'allmax'])
+dfnewmax = dfnewmax[np.isfinite(dfnewmax['year'])]
+#obtaining corresponding lists for dates in accordance to j (e.g. 186th day of the year) 
+dfnewmin['j']=dfnewmin['Date'].dt.strftime('%-j')
+dfnewmax['j']=dfnewmax['Date'].dt.strftime('%-j')
+
+plt.figure()
+
+plt.plot(list(dfmaxhist['allmax']), '-', color='pink', linewidth=1, alpha=0.5)
+plt.plot(list(dfminhist['allmin']), '-', color='lightblue', linewidth=1)
+colors=['black']*17+['red']*14+['black']*9
+plt.scatter(list(dfnewmin['j']),list(dfnewmin['allmin']), marker = 'v' ,s=9, color='black',zorder=3)
+plt.scatter(list(dfnewmax['j']),list(dfnewmax['allmax']), marker = '^' ,s=9, color=colors,zorder=3)
+#set x-ticks to monthly format
+#'-1' rearranges the list to correct for strftime's auto rearrange of days
+#'+timedelta to center ticks on middle of months
+xticks = ((pd.date_range('1/1/2015', '31/12/2015',freq='M') - 1 + pd.Timedelta('15D'))
+          .strftime('%-j').astype(int))
+xticks_labels = pd.to_datetime(xticks, format='%j').strftime('%b')
+plt.xticks(xticks,xticks_labels)
+#fills gaps inbetween
+plt.gca().fill_between(range(len(dfminall['allmin'])), 
+                       list(dfminall['allmin']), list(dfmaxall['allmax']), 
+                       facecolor='gray', 
+                       alpha=0.2)
+
+plt.grid(True)
+plt.ylabel('Temperature ($^{\circ}$C)')
+plt.title('Melbourne 2015 10-Year Record Temperatures', alpha=0.8, fontsize=9)
+plt.legend(['2005-2014 Low', '2005-2014 High','2015 Record Low', '2015 Record High'],fontsize=7)
+plt.show()
+
+
 import pandas as pd
 import numpy as np
 from scipy.stats import ttest_ind
