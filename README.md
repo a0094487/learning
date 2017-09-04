@@ -1,6 +1,10 @@
 # learning
 Study resources.
 
+## courseworkcodedump.py
+
+Dump of notable code written for python coursework to date. A portfolio of sorts.
+
 ## Python 
 
 [Python for Everybody](https://www.py4e.com/) by the University of Michigan. Great introduction to Python programming.
@@ -19,9 +23,7 @@ Study resources.
 
 # Schedule 
 
-Finish up on Machine Learning in Python, both supervised and unsupervised portions.
-
-Applied Text Mining, then Social Network Analysis in Python.
+Continue Applied Text Mining, then move on to Social Network Analysis in Python.
 
 Work on SAS base certification.
 
