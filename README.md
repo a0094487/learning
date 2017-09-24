@@ -23,7 +23,7 @@ Dump of notable code written for python coursework to date. A portfolio of sorts
 
 # Schedule 
 
-Continue Applied Text Mining, then move on to Social Network Analysis in Python.
+Finish Social Network Analysis in Python.
 
 Work on SAS base certification.
 
